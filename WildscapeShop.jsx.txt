@@ -1,0 +1,502 @@
+import React, { useState, useEffect } from "react";
+
+// WildscapeShop.jsx
+// Single-file React component for a small ecommerce front-end to sell wildlife & landscape photos.
+// Tailwind CSS assumed to be available. Uses local state + localStorage for cart persistence.
+// NOTE: Replace placeholder image URLs and add a real payments integration (Stripe recommended) before going live.
+
+export default function WildscapeShop() {
+  // Sample product catalog (replace image URLs with your own high-res images)
+  const initialProducts = [
+    {
+      id: "wl-001",
+      title: "Golden Eagle Over Tundra",
+      category: "Wildlife",
+      price: 120.0,
+      sizes: ["A4", "A3", "A2", "Print (30x40)", "Digital"],
+      image:
+        "https://images.unsplash.com/photo-1501706362039-c6e809d1b3f0?w=1600&q=80&auto=format&fit=crop",
+      featured: true,
+      description:
+        "A high-resolution capture of a golden eagle in flight above the tundra at sunrise.",
+    },
+    {
+      id: "ls-001",
+      title: "Misty Highlands Sunrise",
+      category: "Landscape",
+      price: 95.0,
+      sizes: ["A4", "A3", "A2", "Canvas 24x36", "Digital"],
+      image:
+        "https://images.unsplash.com/photo-1501785888041-af3ef285b470?w=1600&q=80&auto=format&fit=crop",
+      featured: true,
+      description: "Soft morning light on the Highland peaks with low mist in the valleys.",
+    },
+    {
+      id: "wl-002",
+      title: "Leopard in the Long Grass",
+      category: "Wildlife",
+      price: 150.0,
+      sizes: ["A4", "A3", "A2", "Canvas 30x40", "Digital"],
+      image:
+        "https://images.unsplash.com/photo-1518791841217-8f162f1e1131?w=1600&q=80&auto=format&fit=crop",
+      featured: false,
+      description: "Portrait of a leopard hidden in tall golden grass, eyes locked on the lens.",
+    },
+    {
+      id: "ls-002",
+      title: "Arctic Night Sky",
+      category: "Landscape",
+      price: 110.0,
+      sizes: ["A4", "A3", "A2", "Metal Print 36x24", "Digital"],
+      image:
+        "https://images.unsplash.com/photo-1441974231531-c6227db76b6e?w=1600&q=80&auto=format&fit=crop",
+      featured: false,
+      description: "Aurora borealis over a frozen lake, long-exposure star trails and reflections.",
+    },
+  ];
+
+  const [products] = useState(initialProducts);
+  const [query, setQuery] = useState("");
+  const [category, setCategory] = useState("All");
+  const [sort, setSort] = useState("featured");
+  const [selected, setSelected] = useState(null); // product for modal
+  const [cart, setCart] = useState(() => {
+    try {
+      const raw = localStorage.getItem("wildscape_cart");
+      return raw ? JSON.parse(raw) : [];
+    } catch (e) {
+      return [];
+    }
+  });
+  const [showCart, setShowCart] = useState(false);
+  const [adminMode, setAdminMode] = useState(false);
+
+  useEffect(() => {
+    localStorage.setItem("wildscape_cart", JSON.stringify(cart));
+  }, [cart]);
+
+  // Derived product list based on filters
+  const filtered = products
+    .filter((p) => (category === "All" ? true : p.category === category))
+    .filter(
+      (p) =>
+        p.title.toLowerCase().includes(query.toLowerCase()) ||
+        p.description.toLowerCase().includes(query.toLowerCase())
+    )
+    .sort((a, b) => {
+      if (sort === "price-asc") return a.price - b.price;
+      if (sort === "price-desc") return b.price - a.price;
+      if (sort === "title") return a.title.localeCompare(b.title);
+      // featured default
+      return Number(b.featured) - Number(a.featured);
+    });
+
+  // Cart helpers
+  const addToCart = (product, size = product.sizes[0], qty = 1) => {
+    setCart((prev) => {
+      const existing = prev.find((i) => i.id === product.id && i.size === size);
+      if (existing) {
+        return prev.map((i) =>
+          i.id === product.id && i.size === size ? { ...i, qty: i.qty + qty } : i
+        );
+      }
+      return [...prev, { id: product.id, title: product.title, price: product.price, size, qty }];
+    });
+  };
+
+  const removeFromCart = (index) => {
+    setCart((prev) => prev.filter((_, i) => i !== index));
+  };
+
+  const updateQty = (index, qty) => {
+    if (qty < 1) return;
+    setCart((prev) => prev.map((it, i) => (i === index ? { ...it, qty } : it)));
+  };
+
+  const subtotal = cart.reduce((s, it) => s + it.price * it.qty, 0);
+  const shipping = subtotal > 200 || subtotal === 0 ? 0 : 9.99;
+  const tax = +(subtotal * 0.2).toFixed(2);
+  const total = +(subtotal + shipping + tax).toFixed(2);
+
+  // Admin placeholder: upload image -> adds product (client-side only)
+  const handleAdminUpload = (e) => {
+    e.preventDefault();
+    const form = new FormData(e.target);
+    const newProduct = {
+      id: `prod-${Date.now()}`,
+      title: form.get("title") || "Untitled",
+      category: form.get("category") || "Landscape",
+      price: parseFloat(form.get("price") || 50),
+      sizes: (form.get("sizes") || "Digital").split(",").map((s) => s.trim()),
+      image: form.get("imageUrl") || "https://images.unsplash.com/photo-1501785888041-af3ef285b470",
+      featured: form.get("featured") === "on",
+      description: form.get("description") || "",
+    };
+
+    // NOTE: since products is state constant, this example will store new items in localStorage
+    const saved = JSON.parse(localStorage.getItem("wildscape_extra") || "[]");
+    saved.push(newProduct);
+    localStorage.setItem("wildscape_extra", JSON.stringify(saved));
+    alert("Product added locally. Reload the page to see it in the catalog (demo mode).\n\nFor a real site, save to your CMS or database.");
+  };
+
+  useEffect(() => {
+    // Merge any locally saved extra products
+    try {
+      const extra = JSON.parse(localStorage.getItem("wildscape_extra") || "[]");
+      if (extra.length) {
+        // naive merge - only for demo purposes
+        // eslint-disable-next-line no-console
+        console.log("Loaded extra products from localStorage (demo)", extra.length);
+      }
+    } catch (e) {
+      // ignore
+    }
+  }, []);
+
+  // Very small helper components
+  function IconCart() {
+    return (
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <path d="M3 3h2l.4 2M7 13h10l4-8H5.4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+        <circle cx="10" cy="20" r="1" fill="currentColor" />
+        <circle cx="18" cy="20" r="1" fill="currentColor" />
+      </svg>
+    );
+  }
+
+  return (
+    <div className="min-h-screen bg-slate-50 text-slate-900">
+      <header className="bg-white shadow-sm sticky top-0 z-20">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="flex items-center justify-between h-16">
+            <div className="flex items-center gap-4">
+              <div className="text-2xl font-semibold tracking-tight">Wildscape</div>
+              <div className="hidden sm:flex gap-2 text-sm text-slate-600">
+                <button
+                  onClick={() => setCategory("All")}
+                  className={`px-2 py-1 rounded ${category === "All" ? "bg-slate-100" : ""}`}
+                >
+                  All
+                </button>
+                <button
+                  onClick={() => setCategory("Wildlife")}
+                  className={`px-2 py-1 rounded ${category === "Wildlife" ? "bg-slate-100" : ""}`}
+                >
+                  Wildlife
+                </button>
+                <button
+                  onClick={() => setCategory("Landscape")}
+                  className={`px-2 py-1 rounded ${category === "Landscape" ? "bg-slate-100" : ""}`}
+                >
+                  Landscape
+                </button>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-3">
+              <div className="hidden md:block">
+                <input
+                  type="search"
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                  placeholder="Search photos..."
+                  className="px-3 py-2 border rounded-md w-64 text-sm focus:outline-none"
+                />
+              </div>
+
+              <div className="flex items-center gap-2">
+                <select
+                  value={sort}
+                  onChange={(e) => setSort(e.target.value)}
+                  className="px-2 py-1 border rounded text-sm"
+                >
+                  <option value="featured">Recommended</option>
+                  <option value="price-asc">Price: Low → High</option>
+                  <option value="price-desc">Price: High → Low</option>
+                  <option value="title">Title</option>
+                </select>
+
+                <button
+                  onClick={() => setShowCart(true)}
+                  className="relative flex items-center gap-2 px-3 py-2 bg-emerald-600 text-white rounded"
+                >
+                  <IconCart />
+                  <span className="text-sm">Cart</span>
+                  {cart.length > 0 && (
+                    <span className="absolute -top-2 -right-2 bg-red-500 text-xs text-white px-1 rounded-full">
+                      {cart.reduce((s, i) => s + i.qty, 0)}
+                    </span>
+                  )}
+                </button>
+
+                <button
+                  onClick={() => setAdminMode((m) => !m)}
+                  className="px-2 py-1 text-sm border rounded"
+                >
+                  Admin
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </header>
+
+      <main className="max-w-7xl mx-auto p-4">
+        <section className="mt-6 grid grid-cols-1 lg:grid-cols-4 gap-8">
+          <div className="lg:col-span-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
+              {filtered.map((p) => (
+                <article
+                  key={p.id}
+                  className="bg-white rounded-lg shadow-sm overflow-hidden cursor-pointer hover:shadow-md transition"
+                  onClick={() => setSelected(p)}
+                >
+                  <div className="aspect-[4/3] w-full bg-slate-100 overflow-hidden">
+                    <img
+                      src={p.image}
+                      alt={p.title}
+                      className="w-full h-full object-cover transform hover:scale-105 transition duration-300"
+                      loading="lazy"
+                    />
+                  </div>
+                  <div className="p-3">
+                    <h3 className="font-medium">{p.title}</h3>
+                    <p className="text-sm text-slate-500">{p.category} • £{p.price}</p>
+                  </div>
+                </article>
+              ))}
+            </div>
+          </div>
+
+          <aside className="hidden lg:block">
+            <div className="sticky top-24 bg-white p-4 rounded-lg shadow-sm">
+              <h4 className="font-semibold">Quick Filters</h4>
+              <div className="mt-3 text-sm text-slate-600">
+                <div className="flex items-center justify-between py-1">
+                  <span>Featured</span>
+                  <span>{products.filter((p) => p.featured).length}</span>
+                </div>
+                <div className="flex items-center justify-between py-1">
+                  <span>Wildlife</span>
+                  <span>{products.filter((p) => p.category === "Wildlife").length}</span>
+                </div>
+                <div className="flex items-center justify-between py-1">
+                  <span>Landscape</span>
+                  <span>{products.filter((p) => p.category === "Landscape").length}</span>
+                </div>
+
+                <hr className="my-3" />
+                <div className="text-xs text-slate-500">Pro tip: use keywords like "aurora", "eagle" to find shots quickly.</div>
+              </div>
+            </div>
+          </aside>
+        </section>
+
+        <section className="mt-10">
+          <h2 className="text-xl font-semibold">Featured</h2>
+          <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-4">
+            {products.filter((p) => p.featured).map((p) => (
+              <div key={p.id} className="bg-white rounded shadow-sm p-3 flex gap-3 items-center">
+                <img src={p.image} alt={p.title} className="w-28 h-20 object-cover rounded" />
+                <div>
+                  <div className="font-medium">{p.title}</div>
+                  <div className="text-sm text-slate-500">£{p.price}</div>
+                </div>
+                <div className="ml-auto">
+                  <button
+                    onClick={() => addToCart(p)}
+                    className="px-3 py-1 bg-emerald-600 text-white rounded"
+                  >
+                    Add
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
+
+        <section className="mt-12 text-sm text-slate-600">
+          <p>
+            Built with a focus on prints and digital downloads. For secure payments integrate Stripe or
+            another payment gateway. Fulfillment for prints requires a print partner (local lab or print-on-demand service).
+          </p>
+        </section>
+      </main>
+
+      {/* Selected product modal */}
+      {selected && (
+        <div className="fixed inset-0 z-40 flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/50" onClick={() => setSelected(null)} />
+          <div className="relative max-w-4xl w-full bg-white rounded-lg shadow-lg overflow-hidden">
+            <div className="grid grid-cols-1 md:grid-cols-2">
+              <div className="aspect-[4/3]">
+                <img src={selected.image} alt={selected.title} className="w-full h-full object-cover" />
+              </div>
+              <div className="p-6">
+                <h3 className="text-2xl font-semibold">{selected.title}</h3>
+                <p className="text-sm text-slate-500 mt-1">{selected.category} • £{selected.price}</p>
+                <p className="mt-3 text-slate-700">{selected.description}</p>
+
+                <div className="mt-4">
+                  <label className="block text-sm text-slate-600">Size</label>
+                  <select id="size-select" className="mt-1 px-3 py-2 border rounded w-full">
+                    {selected.sizes.map((s) => (
+                      <option key={s} value={s}>{s}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="mt-4 flex items-center gap-3">
+                  <button
+                    onClick={() => {
+                      const select = document.getElementById("size-select");
+                      addToCart(selected, select.value, 1);
+                      setSelected(null);
+                      setShowCart(true);
+                    }}
+                    className="px-4 py-2 bg-emerald-600 text-white rounded"
+                  >
+                    Add to cart
+                  </button>
+
+                  <button onClick={() => setSelected(null)} className="px-4 py-2 border rounded">
+                    Close
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Cart drawer */}
+      {showCart && (
+        <div className="fixed inset-0 z-50 flex">
+          <div className="absolute inset-0 bg-black/40" onClick={() => setShowCart(false)} />
+          <aside className="relative ml-auto w-full sm:w-96 bg-white h-full shadow-lg p-4 overflow-auto">
+            <div className="flex items-center justify-between">
+              <h3 className="font-semibold text-lg">Your Cart</h3>
+              <button onClick={() => setShowCart(false)} className="text-slate-600">Close</button>
+            </div>
+
+            {cart.length === 0 ? (
+              <div className="mt-6 text-slate-500">Your cart is empty.</div>
+            ) : (
+              <div className="mt-4 space-y-3">
+                {cart.map((it, idx) => (
+                  <div key={idx} className="flex items-start gap-3 bg-slate-50 p-2 rounded">
+                    <div className="flex-1">
+                      <div className="font-medium">{it.title}</div>
+                      <div className="text-xs text-slate-500">{it.size}</div>
+                      <div className="text-sm">£{it.price} × {it.qty}</div>
+                    </div>
+                    <div className="flex flex-col items-end gap-2">
+                      <input
+                        type="number"
+                        value={it.qty}
+                        onChange={(e) => updateQty(idx, parseInt(e.target.value || "1", 10))}
+                        className="w-16 p-1 border rounded text-sm"
+                        min={1}
+                      />
+                      <button onClick={() => removeFromCart(idx)} className="text-sm text-red-600">Remove</button>
+                    </div>
+                  </div>
+                ))}
+
+                <div className="border-t pt-3">
+                  <div className="flex items-center justify-between text-sm text-slate-700">
+                    <span>Subtotal</span>
+                    <span>£{subtotal.toFixed(2)}</span>
+                  </div>
+                  <div className="flex items-center justify-between text-sm text-slate-700">
+                    <span>Shipping</span>
+                    <span>{shipping === 0 ? "Free" : `£${shipping.toFixed(2)}`}</span>
+                  </div>
+                  <div className="flex items-center justify-between text-sm text-slate-700">
+                    <span>Tax (20%)</span>
+                    <span>£{tax}</span>
+                  </div>
+                  <div className="flex items-center justify-between font-semibold text-lg mt-2">
+                    <span>Total</span>
+                    <span>£{total}</span>
+                  </div>
+
+                  <div className="mt-4">
+                    {/* In production, connect Stripe / Checkout here */}
+                    <button
+                      onClick={() => alert('Demo checkout - integrate Stripe Checkout or Payment Intents for live payments.')}
+                      className="w-full px-4 py-2 bg-emerald-600 text-white rounded"
+                    >
+                      Checkout
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            <div className="mt-6 text-xs text-slate-500">
+              Security tip: set up HTTPS and use a recognized payment provider. Keep original images in high-resolution on a CDN or object storage (S3 / Cloud Storage).
+            </div>
+          </aside>
+        </div>
+      )}
+
+      {/* Admin panel (demo client-side) */}
+      {adminMode && (
+        <div className="fixed bottom-4 left-4 z-40">
+          <div className="bg-white p-4 rounded shadow-md w-96">
+            <div className="flex items-center justify-between">
+              <h4 className="font-semibold">Admin (Demo)</h4>
+              <button onClick={() => setAdminMode(false)} className="text-sm">Close</button>
+            </div>
+
+            <form onSubmit={handleAdminUpload} className="mt-3 space-y-2 text-sm">
+              <div>
+                <label className="block text-xs">Title</label>
+                <input name="title" className="w-full p-2 border rounded" />
+              </div>
+              <div>
+                <label className="block text-xs">Image URL (placeholder for upload)</label>
+                <input name="imageUrl" className="w-full p-2 border rounded" />
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="block text-xs">Category</label>
+                  <select name="category" className="w-full p-2 border rounded">
+                    <option>Landscape</option>
+                    <option>Wildlife</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs">Price (GBP)</label>
+                  <input name="price" type="number" className="w-full p-2 border rounded" />
+                </div>
+              </div>
+              <div>
+                <label className="block text-xs">Sizes (comma separated)</label>
+                <input name="sizes" className="w-full p-2 border rounded" defaultValue="Digital,A4,A3" />
+              </div>
+              <div>
+                <label className="inline-flex items-center gap-2 text-xs">
+                  <input type="checkbox" name="featured" /> <span>Featured</span>
+                </label>
+              </div>
+              <div>
+                <label className="block text-xs">Description</label>
+                <textarea name="description" className="w-full p-2 border rounded" rows={3}></textarea>
+              </div>
+              <div className="flex gap-2 justify-end">
+                <button type="submit" className="px-3 py-1 bg-blue-600 text-white rounded text-sm">Add (demo)</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      <footer className="mt-12 bg-white border-t">
+        <div className="max-w-7xl mx-auto p-6 text-sm text-slate-600">© {new Date().getFullYear()} Wildscape — Prints & Digital Downloads</div>
+      </footer>
+    </div>
+  );
+}
